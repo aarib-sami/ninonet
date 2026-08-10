@@ -1,0 +1,154 @@
+---
+alwaysApply: true
+---
+# ENSOcast: 7 day build plan
+
+Roughly 4 to 5 hours a day, about 30 hours total. The order front loads the risky data plumbing and gets a model training end to end early, so the rest of the week is iteration and polish, not firefighting. Each day ends with a checkpoint (what must work) and a cut line (what to drop if you are behind).
+
+Rule for the week: if any single task runs more than 90 minutes past its estimate, stop, use the simplest thing that works, and move on. Momentum beats perfection here.
+
+---
+
+## Day 1. Data plumbing (4 to 5 hrs)
+
+This is the make or break day. Everything downstream depends on clean inputs, and data wrangling is where projects stall, so protect this time.
+
+- Set up the repo and environment (Phase 0).
+- Open ERSSTv5 over the network with xarray, crop to the tropical Pacific, slice to 1950 on (Phase 1).
+- Convert to anomalies and save `pacific_anom.nc`.
+- Pull the ONI text file, parse it, and map each three month season to its middle month so it aligns with the SST time axis (Phase 2, first half).
+
+**Done when:** you can load the anomaly maps and have an ONI value lined up for every month, and you have eyeballed one anomaly map to confirm it looks like ocean, not noise.
+
+**If behind:** skip the anomaly plotting sanity check, but do not skip the anomaly computation itself.
+
+**Links:**
+- ERSSTv5 landing page: https://psl.noaa.gov/data/gridded/data.noaa.ersst.v5.html
+- ERSSTv5 open directly in xarray, no download: https://psl.noaa.gov/thredds/dodsC/Datasets/noaa.ersst.v5/sst.mnmean.nc
+- ERSSTv5 direct file download instead: https://downloads.psl.noaa.gov/Datasets/noaa.ersst.v5/sst.mnmean.nc
+- ONI table, your target and El Niño labels: https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt
+- ONI human readable version to sanity check: https://www.cpc.ncep.noaa.gov/products/analysis_monitoring/ensostuff/ONI_v5.php
+
+---
+
+## Day 2. Samples, baselines, first training run (4 to 5 hrs)
+
+Goal is an ugly model that trains end to end. Ugly but working unlocks the rest of the week.
+
+- Build the sliding window samples for lead 3 months, split by time, never randomly (Phase 2, second half).
+- Compute persistence and climatology baselines on the test years and write the numbers down (Phase 3).
+- Drop in the small CNN and get one full training loop running, even if the result is bad (Phase 4, start).
+
+**Done when:** loss goes down across epochs and the model produces a test prediction, and you know the persistence number you have to beat.
+
+**If behind:** just get lead 3 working. Ignore other leads for now.
+
+**Links:**
+- PyTorch install picker, get the right Windows command: https://pytorch.org/get-started/locally/
+- xarray docs: https://docs.xarray.dev/en/stable/
+- scikit-learn, for baselines and metrics: https://scikit-learn.org/stable/
+
+---
+
+## Day 3. Make the model good, draw the skill curve (4 to 5 hrs)
+
+- Iterate the model: tune the small stuff, add dropout, early stop on validation. Keep it small so it does not memorize the short record (Phase 4).
+- Build samples for leads 1, 6, and 9 and evaluate all of them.
+- Produce the skill curve: model versus persistence versus climatology across lead times (Phase 5).
+
+**Done when:** you have the skill curve saved as an image and your model clearly beats persistence at least at the shorter leads. That chart is the heart of the project.
+
+**If behind:** report leads 3 and 6 only. Two honest points still make the curve.
+
+**Links:**
+- The paper you are echoing, Ham et al. 2019 Nature: https://www.nature.com/articles/s41586-019-1559-7
+- correlation metric reference: https://numpy.org/doc/stable/reference/generated/numpy.corrcoef.html
+- matplotlib, for the skill curve plot: https://matplotlib.org/stable/
+
+---
+
+## Day 4. The winter forecast and the impacts table (4 hrs)
+
+- Feed the last twelve months of SST into the trained model to get the winter 2026 to 27 ONI forecast (Phase 6).
+- Assemble a city list with coordinates (aim for 50 to 70 recognizable cities).
+- Pull each city's winter history from the Open-Meteo archive, one request per city.
+- Per city, fit the simple ONI to winter anomaly relationship, plug in your forecast, attach a confidence score, and write `impacts.json`.
+
+Watch the two silent bugs: December belongs to the following winter, and anomalies are relative to each city's own long term winter average.
+
+**Done when:** `impacts.json` exists with a temperature, precipitation, and snow anomaly plus confidence for every city.
+
+**If behind:** cut the city list to 30, and do temperature and snow only, add precipitation later.
+
+**Links:**
+- Open-Meteo archive docs, all the parameter names: https://open-meteo.com/en/docs/historical-weather-api
+- Open-Meteo example call, Toronto, temp and precip and snow: https://archive-api.open-meteo.com/v1/archive?latitude=43.65&longitude=-79.38&start_date=1960-01-01&end_date=2025-12-31&daily=temperature_2m_mean,precipitation_sum,snowfall_sum&timezone=auto
+- city coordinates if you need them: https://simplemaps.com/data/world-cities
+
+---
+
+## Day 5. The map (5 hrs)
+
+Your wheelhouse, so this should move fast.
+
+- React app with a map, one dot per city colored blue to red by temperature anomaly (Phase 8).
+- Click a city to open a panel with three readouts, each an arrow and a plain phrase, plus the confidence tag.
+- Read everything from `impacts.json` for now.
+- Honest footer line about it being a model forecast fed through a historical relationship, not an official outlook.
+
+**Done when:** you can click any city and read a plain sentence about its winter, with the map colored sensibly.
+
+**If behind:** static colored dots with a click panel is enough. Skip hover effects and animations.
+
+**Links:**
+- react-simple-maps, simplest for dot maps: https://www.react-simple-maps.io/
+- Leaflet, if you want a real slippy map: https://react-leaflet.js.org/
+- world map GeoJSON: https://github.com/holtzy/D3-graph-gallery/blob/master/DATA/world.geojson
+
+---
+
+## Day 6. Cloud and wiring (4 to 5 hrs)
+
+- Export the model to ONNX (Phase 7).
+- Stand up the S3 bucket with the model, latest input, and `impacts.json`.
+- Deploy the Lambda inference function behind API Gateway, serving the live forecast ONI.
+- Wire the map to call the endpoint and show the live number, so the page is visibly model driven.
+
+**Done when:** the deployed endpoint returns a forecast over HTTPS and the map displays it.
+
+**If behind:** take the minimal path. Bake the forecast number into `impacts.json`, host the static site from S3, and skip Lambda. Your cloud line becomes storage and hosting. Add the endpoint later if you want.
+
+**Links:**
+- ONNX export from PyTorch: https://pytorch.org/docs/stable/onnx.html
+- onnxruntime: https://onnxruntime.ai/docs/
+- Lambda with container images, avoids the size limit: https://docs.aws.amazon.com/lambda/latest/dg/python-image.html
+- API Gateway plus Lambda tutorial: https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-lambda.html
+- S3 static website hosting: https://docs.aws.amazon.com/AmazonS3/latest/userguide/WebsiteHosting.html
+
+---
+
+## Day 7. Writeup and buffer (3 to 4 hrs)
+
+Half the day is finishing, half is slack for whatever slipped earlier in the week.
+
+- README with the skill curve up top, a short honest paragraph on method and limits, and the resume lines (Phase 9).
+- A screenshot or short clip of the map.
+- Clean the repo, write clear run instructions, push it public.
+- Update your resume and portfolio with the ENSOcast line.
+
+**Done when:** a stranger can land on the repo, understand what it does in thirty seconds, and run it.
+
+**Links:**
+- how to write a good README: https://www.makeareadme.com/
+
+---
+
+## The resume lines you are working toward
+
+- Built ENSOcast, a convolutional neural network that forecasts the El Niño index from tropical Pacific ocean temperature maps, benchmarked against persistence across forecast lead times.
+- Deployed the model as a serverless inference endpoint on AWS Lambda behind API Gateway, with artifacts in S3.
+- Built an interactive map translating the forecast into plain language regional winter impacts with a per region confidence measure.
+
+## If the week gets tight
+
+Cut in this order, last thing first: the Lambda endpoint (go static), then precipitation in the impacts, then the number of cities, then the extra forecast leads. Never cut the skill curve or the honest evaluation. Those are what make it a real project rather than a demo.

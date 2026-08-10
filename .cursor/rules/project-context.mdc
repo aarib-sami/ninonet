@@ -1,0 +1,335 @@
+---
+description: What Ninonet is and how to work in this repo
+alwaysApply: true
+---
+# El Niño Forecaster with Winter Impacts Map: full build guide
+
+Written assuming you know how to code but know nothing about weather. Every weather term is explained the first time it shows up, every dataset has an exact download location, and the build is broken into small steps.
+
+---
+
+## Part 1. The weather concepts, in plain English
+
+You need five ideas. That is genuinely all.
+
+**Sea surface temperature (SST).** The temperature of the top layer of the ocean. Scientists have gridded maps of it going back over a century, one value per cell of the ocean, one map per month. Think of each monthly map as a grayscale image where pixel brightness is how warm that patch of ocean was.
+
+**El Niño and La Niña (together called ENSO).** Every few years, a huge stretch of the tropical Pacific Ocean, along the equator, gets unusually warm or unusually cold. The warm phase is called El Niño, the cold phase is La Niña, and the whole seesaw is called ENSO, short for El Niño Southern Oscillation. It matters because that warm or cold patch changes the path of the jet stream, which shifts where storms go for an entire winter across North America and beyond. So a patch of warm ocean water near the equator in the Pacific can mean a wetter California and a milder Canadian winter months later. That delay is the whole reason forecasting is possible.
+
+**The Niño 3.4 region.** To turn "the Pacific is warm" into a number, scientists agreed on one specific rectangle of ocean along the equator, called the Niño 3.4 region. It sits from 5 degrees north to 5 degrees south, and from 170 degrees west to 120 degrees west. They average the SST in just that box.
+
+**Anomaly.** This is the single most important word in the project. An anomaly is not the temperature, it is how far the temperature is from normal for that time of year. The ocean is naturally warmer in some months than others, so raw temperature is useless for spotting El Niño. Instead you compute, for each month, the average over many years (the "climatology"), and subtract it. What is left, the anomaly, is the departure from normal. Plus 2 means two degrees warmer than a typical version of that month. Everything in this project runs on anomalies, not raw values.
+
+**ONI, the Oceanic Niño Index.** This is the official number that decides whether we are in El Niño. Take the SST anomaly in the Niño 3.4 box, average it over three months in a row to smooth out noise, and that running value is the ONI. The rule NOAA uses: ONI of plus 0.5 or higher means El Niño, minus 0.5 or lower means La Niña, in between is neutral. When the news says "a strong El Niño," they mean the ONI is high. Right now it is around plus 2.3, which is firmly El Niño.
+
+So the chain is: ocean temperature maps, turned into anomalies, averaged over one special box, smoothed over three months, gives the ONI, which tells you the ENSO state.
+
+---
+
+## Part 2. The machine learning concepts, briefly
+
+**Forecasting the ONI as a prediction problem.** You are going to teach a model this task: given the last twelve monthly SST anomaly maps of the tropical Pacific, output the ONI a few months from now. Input is a stack of maps, output is one number. That is a standard supervised learning setup, just with images as input.
+
+**CNN, convolutional neural network.** A type of neural network built for grid shaped data like images. Instead of looking at every pixel independently, it slides small filters across the image to pick up local patterns (an edge, a warm blob), then combines them into bigger patterns. It is the natural choice here because SST maps are images, and the shape and position of the warm blob is exactly the signal. You will stack the twelve input months as twelve channels, the same way a color image has three channels, and let the network read the whole sequence at once.
+
+**Baseline.** A dumb method you must beat to prove your model did anything. The main one here is persistence, which just guesses that the ONI a few months from now equals the ONI today. It is weak at long range but hard to beat at short range, so it keeps you honest.
+
+**Train, validation, test split, and leakage.** You split your history into three time periods. You fit the model on the earliest (train), tune it on the middle (validation), and judge it on the most recent, untouched period (test). Crucially you split by time, never randomly, because weather months next to each other are almost identical, so a random split would let the model peek at answers. That peeking is called leakage, and it makes results look great and mean nothing.
+
+**Skill.** How much better than the baseline you are. The headline chart of the project is skill versus lead time: for forecasts 1, 3, 6, 9 months out, how well does the model track reality compared to persistence. A model that clearly beats persistence out to some horizon and then fades is an honest, respectable result.
+
+---
+
+## Part 3. What the project is, now that you have the words
+
+Two layers.
+
+Layer one, the machine learning, is a CNN that reads twelve months of tropical Pacific SST anomaly maps and forecasts the ONI several months ahead. You train it on decades of history, test it on recent held out years, and score it against persistence to produce a skill curve. This is a small version of a real 2019 Nature paper (Ham, Kim, Luo) that forecast ENSO with a CNN.
+
+Layer two, the demo, takes the model's forecast for the coming winter and turns it into something a normal person feels. Using the historical link between the ONI and each city's past winters, you predict whether a given city is heading for a warmer, colder, wetter, drier, snowier, or less snowy winter, and you show it on a map. Click your city, read a plain sentence, see a confidence tag that is honest about where the signal is real.
+
+The forecaster is the substance. The map is the hook.
+
+---
+
+## Part 4. Where every piece of data comes from
+
+Three sources. All free, all public, no accounts needed for the first two and none at all for the third.
+
+### 4a. Ocean temperature maps, for the forecaster
+
+**Dataset:** NOAA ERSSTv5. Monthly sea surface temperature on a 2 degree by 2 degree global grid, going back to 1854.
+
+**Landing page:** https://psl.noaa.gov/data/gridded/data.noaa.ersst.v5.html
+
+**The actual file** is called `sst.mnmean.nc` (a netCDF file, a common scientific array format). You have two ways to get it:
+
+- Direct download: from the landing page click the netCDF download link, or fetch it directly from the PSL download server. The path follows the pattern `https://downloads.psl.noaa.gov/Datasets/noaa.ersst.v5/sst.mnmean.nc`.
+- No download at all: open it straight from NOAA over the network with xarray using their OPeNDAP link `https://psl.noaa.gov/thredds/dodsC/Datasets/noaa.ersst.v5/sst.mnmean.nc`. xarray streams only the slice you ask for.
+
+If a direct link ever moves, the landing page above always has the current one.
+
+**What is inside:** a variable called `sst`, with dimensions time, latitude, longitude. Latitude runs about 88 south to 88 north, longitude 0 to 358, one time step per month from January 1854.
+
+### 4b. The ONI, for the forecaster target and the El Niño labels
+
+**Source:** NOAA Climate Prediction Center.
+
+**The machine readable file:** https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt
+
+This is a plain text table. Each row is one three month season. The columns are the season code (`SEAS`, values like DJF, JFM, FMA and so on), the year (`YR`), the total SST value (`TOTAL`), and the anomaly (`ANOM`). That `ANOM` column is the ONI. Use it two ways: as the number your model predicts, and, by checking whether it is at or above plus 0.5, as the label for which winters were El Niño.
+
+Human readable color coded version, handy for sanity checking: https://www.cpc.ncep.noaa.gov/products/analysis_monitoring/ensostuff/ONI_v5.php
+
+One alignment note for later: each ONI season is centered on its middle month, so DJF is centered on January, JFM on February, and so on. When you line the ONI up with monthly SST, map each season to its middle month.
+
+### 4c. Per city winter weather, for the impacts map
+
+**Source:** Open-Meteo historical archive. Free, no API key, based on the ERA5 reanalysis, covers 1940 to present, returns data for any latitude and longitude as JSON.
+
+**Endpoint:** `https://archive-api.open-meteo.com/v1/archive`
+
+**Example request** for one city, pulling daily mean temperature, total precipitation, and total snowfall:
+
+```
+https://archive-api.open-meteo.com/v1/archive?latitude=43.65&longitude=-79.38&start_date=1960-01-01&end_date=2025-12-31&daily=temperature_2m_mean,precipitation_sum,snowfall_sum&timezone=auto
+```
+
+You call this once per city in your list, with that city's coordinates. No key, no login.
+
+---
+
+## Part 5. The build, step by step
+
+Budget roughly 25 to 35 hours for a real machine learning core. Do the steps in order so you always have something that runs.
+
+### Phase 0. Project setup (about 1 hour)
+
+Make the folders and install packages.
+
+```
+enso/
+  data.py        get and clean the ocean data
+  dataset.py     turn it into training samples
+  model.py       the CNN
+  train.py       train it
+  evaluate.py    the skill curve
+  forecast.py    make the winter prediction
+  impacts.py     the per city table
+  export.py      export the model for the cloud
+  cloud/         the AWS bits
+  web/           the React map
+```
+
+```
+pip install torch xarray netCDF4 numpy pandas scikit-learn matplotlib requests onnx onnxruntime
+```
+
+### Phase 1. Get and clean the ocean data (about 3 hours)
+
+Open ERSSTv5, keep only the tropical Pacific, keep only 1950 onward (earlier data is sparse and noisier).
+
+```python
+import xarray as xr
+
+url = "https://psl.noaa.gov/thredds/dodsC/Datasets/noaa.ersst.v5/sst.mnmean.nc"
+ds = xr.open_dataset(url)                      # streams over the network
+
+# tropical Pacific box; longitudes here are 0 to 360, so 120E to 280E
+sst = ds["sst"].sel(lat=slice(30, -30), lon=slice(120, 280))
+sst = sst.sel(time=slice("1950-01-01", None))
+```
+
+Now convert to anomalies, the departure from normal for each month. This is the step that makes El Niño visible.
+
+```python
+climatology = sst.groupby("time.month").mean("time")     # average Jan, Feb, ...
+anom = sst.groupby("time.month") - climatology
+anom = anom.fillna(0.0)                                   # land cells to 0
+```
+
+You now have a stack of monthly anomaly maps, each roughly 30 by 80 cells. Save it.
+
+```python
+anom.to_netcdf("data/pacific_anom.nc")
+```
+
+### Phase 2. Get the ONI and build training samples (about 3 hours)
+
+Pull the ONI table and parse it.
+
+```python
+import pandas as pd
+
+oni = pd.read_csv(
+    "https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt",
+    sep=r"\s+"
+)
+# columns: SEAS, YR, TOTAL, ANOM  ->  ANOM is the ONI
+```
+
+Map each season to its middle month so it lines up with the SST time axis (DJF to January, JFM to February, and so on), giving you one ONI value per month.
+
+Then build samples with a sliding window. Each sample is twelve consecutive monthly maps as input, and the ONI at your chosen lead time as the answer.
+
+```python
+import numpy as np
+
+arr = anom.values                # shape: time, lat, lon
+oni_by_month = ...               # a numpy array of ONI aligned to arr's time axis
+
+window, lead = 12, 3             # 12 months in, predict 3 months ahead
+X, y = [], []
+for t in range(window, len(arr) - lead):
+    X.append(arr[t-window:t])            # 12, lat, lon  (12 becomes channels)
+    y.append(oni_by_month[t + lead])     # a single ONI number
+X = np.stack(X).astype("float32")        # samples, 12, lat, lon
+y = np.array(y, dtype="float32")
+```
+
+Split by time, never at random.
+
+```python
+# example: train up to 2005, validate 2005 to 2015, test 2015 on
+```
+
+Repeat the sample building for each lead you care about (start with 3, 6, 9), or add lead as an input later.
+
+### Phase 3. Build the baselines first (about 2 hours)
+
+Before any model, compute what you must beat on the test years.
+
+- Persistence: predicted ONI at t plus lead equals the ONI at t.
+- Climatology: predict 0 (normal).
+
+Record correlation and error for both at each lead. These are your goalposts.
+
+### Phase 4. The CNN and training (about 10 to 15 hours, the core)
+
+Keep the network small. The ocean record only gives a few hundred monthly samples, so a big network will memorize and fail on the test years.
+
+```python
+import torch.nn as nn
+
+class ENSOForecaster(nn.Module):
+    def __init__(self, in_months=12):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(in_months, 32, 3, padding=1), nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(),
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(),
+            nn.Linear(64, 32), nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(32, 1),
+        )
+    def forward(self, x):
+        return self.net(x).squeeze(-1)
+```
+
+Train with mean squared error loss and the Adam optimizer. Watch the validation score and stop when it stops improving. Lean on dropout and the small size rather than more layers.
+
+Honest note to put in your README: the short record is exactly why the original paper pretrained on climate model simulations first. You do not have to, but naming the limit is the mature move, and pretraining is a clean stretch goal.
+
+### Phase 5. The skill curve (about 2 hours)
+
+For each lead time, plot how well the model tracks the real ONI on the untouched test years, next to persistence and climatology on the same axes. The honest, respectable shape is: model beats persistence out to some number of months, then skill decays. Show exactly where it wins and where it does not.
+
+### Phase 6. Make the winter forecast and the impacts table (about 4 hours)
+
+**Forecast.** Feed the most recent twelve months of SST anomalies into the trained model to get the ONI for the coming winter, 2026 to 27.
+
+**Impacts.** Build each city's winter history from Open-Meteo (Part 4c), then, per city, fit a simple line from past ONI values to that city's past winter anomaly. Plug in your forecasted ONI to get each city's predicted anomaly.
+
+Two details that silently corrupt seasonal weather work if you miss them:
+
+- Winter means December plus the following January and February. December belongs to the next year. December 2026 is part of winter 2027. This is the most common bug in seasonal code.
+- An anomaly is a winter's value minus that city's own long term average winter. The confidence tag is the fraction of past El Niño winters whose direction matched your prediction.
+
+Write everything to `impacts.json`, one entry per city with temperature, precipitation, and snow anomalies plus a confidence score.
+
+### Phase 7. The cloud piece, AWS (about 3 to 4 hours)
+
+The goal is one clean cloud element that reads as "I put the model in production," without a devops rabbit hole. Two AWS services.
+
+**S3** (storage) holds the trained model, the latest input maps, and `impacts.json`. It can also host the built website.
+
+**Lambda plus API Gateway** (a serverless function with a public web address) loads the model and returns the current forecast as JSON, so your map is visibly powered by the model instead of a static file.
+
+The trick that makes this easy: export the model to ONNX, a portable model format, and run it with onnxruntime, which is small enough to fit in a Lambda without the usual pain of packing full PyTorch.
+
+```python
+# export.py
+import torch
+dummy = torch.randn(1, 12, LAT, LON)
+torch.onnx.export(model, dummy, "model.onnx",
+                  input_names=["sst"], output_names=["oni"])
+```
+
+```python
+# cloud/lambda_handler.py
+import onnxruntime as ort
+import numpy as np, json
+
+session = ort.InferenceSession("/tmp/model.onnx")   # downloaded from S3 on cold start
+
+def handler(event, context):
+    x = np.load("/tmp/latest_input.npy").astype("float32")[None]
+    oni = float(session.run(None, {"sst": x})[0])
+    return {
+        "statusCode": 200,
+        "headers": {"Access-Control-Allow-Origin": "*"},
+        "body": json.dumps({"forecast_oni": oni}),
+    }
+```
+
+Put API Gateway in front so the browser can call it over HTTPS.
+
+If you run low on time, skip Lambda, bake the forecast number into `impacts.json`, and host the static site straight from S3. Your cloud line becomes storage and hosting rather than a live endpoint. Weaker, but still real, and you can add the endpoint later.
+
+### Phase 8. The map (about 6 to 8 hours)
+
+A React app. A map with a dot per city, colored on a blue to red scale by the temperature anomaly. Click a city and a panel shows three readouts, temperature, precipitation, snow, each with an arrow and a plain phrase, plus the confidence tag as strong, moderate, or mixed. The dots read from `impacts.json`. Call the Lambda endpoint to show the live forecasted ONI so the page is clearly model driven. Add an honest footer: this is a model forecast fed through a historical relationship, not an official outlook, and the signal is weak in the middle latitudes.
+
+### Phase 9. Writeup (about 2 hours)
+
+README with the skill curve at the top, a short honest paragraph on method and limits, your resume lines, and a screenshot or short clip of the map.
+
+---
+
+## Part 6. What you can honestly claim
+
+- Trained a convolutional neural network to forecast the El Niño index from tropical Pacific ocean temperature maps, evaluated against a persistence baseline across forecast lead times.
+- Deployed the trained model as a serverless inference endpoint on AWS Lambda behind API Gateway, with data and model artifacts in S3.
+- Built an interactive map that translates the forecast into plain language regional winter impacts with an honest per region confidence measure.
+
+Do not claim skill you did not measure, and do not hide the leads where persistence wins. The honesty is the point.
+
+---
+
+## Part 7. Quick glossary
+
+| Term | Plain meaning |
+| --- | --- |
+| SST | Sea surface temperature, the warmth of the ocean's top layer |
+| ENSO | The El Niño and La Niña seesaw in the tropical Pacific |
+| El Niño | The warm phase; La Niña is the cold phase |
+| Niño 3.4 | The specific equatorial Pacific box used to measure it |
+| Anomaly | How far a value is from normal for that time of year |
+| Climatology | The many year average you subtract to get an anomaly |
+| ONI | The official three month averaged index that defines El Niño |
+| CNN | A neural network built to read grid or image data |
+| Channel | One layer of a stacked input; here, one input month |
+| Persistence | The dumb baseline that assumes no change |
+| Leakage | Accidentally letting the model see test answers |
+| Skill | How much you beat the baseline by |
+| netCDF | The file format the ocean data comes in |
+| ONNX | A portable model format that runs without full PyTorch |
+| Reanalysis | Model plus observations blended into a gap free weather history (what ERA5 and Open-Meteo give you) |
+
+---
+
+## Part 8. Reference
+
+Ham, Kim, and Luo, "Deep learning for multi-year ENSO forecasts," Nature, 2019. This project is a lightweight take on it.
