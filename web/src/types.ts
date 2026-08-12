@@ -6,6 +6,8 @@ export type Forecast = {
   input_end?: string
   last_observed_oni?: number
   disclaimer?: string
+  source?: string
+  input_shape?: number[]
 }
 
 export type Impacts = {

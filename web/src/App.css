@@ -63,6 +63,12 @@
   color: var(--ink);
 }
 
+.oni-source {
+  font-size: 0.75rem;
+  color: var(--sea);
+  width: 100%;
+}
+
 .stage {
   display: grid;
   grid-template-columns: 1.6fr 0.9fr;

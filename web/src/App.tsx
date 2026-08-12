@@ -86,6 +86,11 @@ export default function App() {
                 {oni.toFixed(2)}
               </strong>
               <span className="oni-state">{oniLabel(oni)}</span>
+              {forecast.source && (
+                <span className="oni-source">
+                  {forecast.source === 'pytorch_live' ? 'live CNN' : forecast.source}
+                </span>
+              )}
             </>
           )}
         </div>
