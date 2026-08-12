@@ -1,5 +1,6 @@
 ---
-alwaysApply: true
+description: ENSOcast 7-day build plan (El Niño / winter impacts)
+alwaysApply: false
 ---
 # ENSOcast: 7 day build plan
 
