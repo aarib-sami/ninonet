@@ -1,0 +1,9 @@
+{
+  "winter": "2026-27",
+  "forecast_oni": 0.6671258807182312,
+  "model_checkpoint": "enso_cnn_lead6_tuned.pt",
+  "model_lead": 6,
+  "input_end": "2026-06-01",
+  "last_observed_oni": 1.3899999856948853,
+  "disclaimer": "CNN ONI forecast only. Per-location winter impacts are computed live on map click via Open-Meteo + historical ONI regression \u2014 not an official outlook."
+}
