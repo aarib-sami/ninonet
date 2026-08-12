@@ -67,56 +67,58 @@ Goal is an ugly model that trains end to end. Ugly but working unlocks the rest 
 
 ---
 
-## Day 4. The winter forecast and the impacts table (4 hrs)
+## Day 4. Winter ONI forecast only (~1 to 2 hrs)
 
-- Feed the last twelve months of SST into the trained model to get the winter 2026 to 27 ONI forecast (Phase 6).
-- Assemble a city list with coordinates (aim for 50 to 70 recognizable cities).
-- Pull each city's winter history from the Open-Meteo archive, one request per city.
-- Per city, fit the simple ONI to winter anomaly relationship, plug in your forecast, attach a confidence score, and write `impacts.json`.
+Do **not** pre-scrape hundreds of Open-Meteo points in the notebook (Colab IPs get HTTP 429). Day 4 only produces the winter ONI number.
 
-Watch the two silent bugs: December belongs to the following winter, and anomalies are relative to each city's own long term winter average.
+- Feed the last twelve months of SST into the trained model → winter 2026–27 ONI (Phase 6).
+- Write `forecast.json` (and keep Day 1 `oni_monthly.csv` available for the API).
+- Shared live-impacts logic lives in `enso/impacts_live.py` (used on click, not in this notebook).
 
-**Done when:** `impacts.json` exists with a temperature, precipitation, and snow anomaly plus confidence for every city.
+**Done when:** `forecast.json` exists with `forecast_oni` and winter label.
 
-**If behind:** cut the city list to 30, and do temperature and snow only, add precipitation later.
+**If behind:** hardcode a reasonable ONI into `forecast.json` from the latest observed value and keep moving; swap in the CNN number later.
 
 **Links:**
-- Open-Meteo archive docs, all the parameter names: https://open-meteo.com/en/docs/historical-weather-api
-- Open-Meteo example call, Toronto, temp and precip and snow: https://archive-api.open-meteo.com/v1/archive?latitude=43.65&longitude=-79.38&start_date=1960-01-01&end_date=2025-12-31&daily=temperature_2m_mean,precipitation_sum,snowfall_sum&timezone=auto
-- city coordinates if you need them: https://simplemaps.com/data/world-cities
+- Open-Meteo archive (used on Day 5 click, not Day 4 bulk): https://open-meteo.com/en/docs/historical-weather-api
 
 ---
 
-## Day 5. The map (5 hrs)
+## Day 5. Click-anywhere map + live impacts API (5 hrs)
 
-Your wheelhouse, so this should move fast.
+Architecture: **click map → API → Open-Meteo for that lat/lon → fit ONI→winter → return phrases**. No giant precomputed `impacts.json` grid required.
 
-- React app with a map, one dot per city colored blue to red by temperature anomaly (Phase 8).
-- Click a city to open a panel with three readouts, each an arrow and a plain phrase, plus the confidence tag.
-- Read everything from `impacts.json` for now.
-- Honest footer line about it being a model forecast fed through a historical relationship, not an official outlook.
+- Run the local API: `uvicorn cloud.impacts_api:app --reload --port 8000` (needs `forecast.json` + `oni_monthly.csv` paths).
+- React map (Leaflet or react-simple-maps): click anywhere → `GET /impacts?lat=&lon=`.
+- Show temperature, precipitation, snow readouts + confidence tag; show `forecast_oni` from `GET /forecast`.
+- Cache repeated clicks client-side or in the API by rounded lat/lon if you want snappier UX.
+- Honest footer: model forecast fed through a historical relationship, not an official outlook.
 
-**Done when:** you can click any city and read a plain sentence about its winter, with the map colored sensibly.
+Watch the two silent bugs in the live fit: December belongs to the following winter, and anomalies are relative to that location's own long-term winter average (`enso/impacts_live.py`).
 
-**If behind:** static colored dots with a click panel is enough. Skip hover effects and animations.
+**Done when:** you can click an arbitrary point and get a plain-language winter panel from the live API.
+
+**If behind:** drop precip/snow and return temperature only; or seed a handful of pinned cities that call the same `/impacts` endpoint.
 
 **Links:**
-- react-simple-maps, simplest for dot maps: https://www.react-simple-maps.io/
-- Leaflet, if you want a real slippy map: https://react-leaflet.js.org/
-- world map GeoJSON: https://github.com/holtzy/D3-graph-gallery/blob/master/DATA/world.geojson
+- FastAPI: https://fastapi.tiangolo.com/
+- Leaflet / react-leaflet: https://react-leaflet.js.org/
+- Open-Meteo example: https://archive-api.open-meteo.com/v1/archive?latitude=43.65&longitude=-79.38&start_date=1960-01-01&end_date=2025-12-31&daily=temperature_2m_mean,precipitation_sum,snowfall_sum&timezone=auto
 
 ---
 
 ## Day 6. Cloud and wiring (4 to 5 hrs)
 
-- Export the model to ONNX (Phase 7).
-- Stand up the S3 bucket with the model, latest input, and `impacts.json`.
-- Deploy the Lambda inference function behind API Gateway, serving the live forecast ONI.
-- Wire the map to call the endpoint and show the live number, so the page is visibly model driven.
+- Export the CNN to ONNX (Phase 7) for the ONI forecast endpoint.
+- S3: model, latest input, `forecast.json`, `oni_monthly.csv`.
+- Lambda + API Gateway:
+  - ONI forecast endpoint (ONNX), and/or
+  - impacts endpoint (`cloud/lambda_impacts.py` — same live Open-Meteo path as local FastAPI).
+- Wire the map to HTTPS endpoints so clicks and the ONI readout are cloud-backed.
 
-**Done when:** the deployed endpoint returns a forecast over HTTPS and the map displays it.
+**Done when:** deployed endpoints work over HTTPS and the map uses them.
 
-**If behind:** take the minimal path. Bake the forecast number into `impacts.json`, host the static site from S3, and skip Lambda. Your cloud line becomes storage and hosting. Add the endpoint later if you want.
+**If behind:** host the static map on S3, keep FastAPI local for demo video; add Lambda in Stretch 1.
 
 **Links:**
 - ONNX export from PyTorch: https://pytorch.org/docs/stable/onnx.html
@@ -143,12 +145,39 @@ Half the day is finishing, half is slack for whatever slipped earlier in the wee
 
 ---
 
+## After the MVP (do not jump ahead)
+
+Finish Days 1–7 first so you have a demable repo (skill curve, `forecast.json`, click→live impacts map, README). Only then stack these upgrades **in this order**:
+
+### Stretch 1. Live cloud inference (AWS)
+
+Export the CNN to ONNX. Put model, latest input, `forecast.json`, and `oni_monthly.csv` in S3. Serve forecast ONI and/or click impacts from Lambda behind API Gateway over HTTPS. Wire the map fully to cloud (no local uvicorn).
+
+**Done when:** public HTTPS endpoints power the ONI readout and map clicks.
+
+This is the production story. Prefer this over CMIP if you only have time for one stretch.
+
+### Stretch 2. CMIP pretrain → fine-tune (Nature-paper path)
+
+Pretrain the CNN on climate-model ENSO simulations (CMIP-scale synthetic history), then fine-tune on real ERSST + ONI. Re-run the skill curve honestly. Re-export ONNX and refresh the Lambda artifact.
+
+**Done when:** test skill clearly improves vs the observations-only model at one or more leads, and the writeup names the transfer-learning setup and its limits.
+
+Do Stretch 2 last: highest ML upside, also the heaviest data/compute lift. Do not block the MVP or Stretch 1 on it.
+
+---
+
 ## The resume lines you are working toward
 
 - Built ENSOcast, a convolutional neural network that forecasts the El Niño index from tropical Pacific ocean temperature maps, benchmarked against persistence across forecast lead times.
 - Deployed the model as a serverless inference endpoint on AWS Lambda behind API Gateway, with artifacts in S3.
 - Built an interactive map translating the forecast into plain language regional winter impacts with a per region confidence measure.
 
+Optional later lines (after stretches):
+
+- Added transfer learning from CMIP simulations to observational SST before fine-tuning the ONI forecaster.
+- Served click-anywhere winter impacts live via API (Open-Meteo + ONI regression) behind API Gateway.
+
 ## If the week gets tight
 
-Cut in this order, last thing first: the Lambda endpoint (go static), then precipitation in the impacts, then the number of cities, then the extra forecast leads. Never cut the skill curve or the honest evaluation. Those are what make it a real project rather than a demo.
+Cut in this order, last thing first: Stretch 2 (CMIP), then Lambda (demo with local FastAPI), then precip/snow in the live impacts payload, then map polish, then extra forecast leads. Never cut the skill curve or the honest evaluation. Those are what make it a real project rather than a demo.

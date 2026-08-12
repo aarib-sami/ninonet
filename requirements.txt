@@ -1,0 +1,13 @@
+# Core ML / data (Colab or local)
+numpy
+pandas
+xarray
+netCDF4
+scikit-learn
+matplotlib
+torch
+requests
+
+# Day 5 local impacts API
+fastapi
+uvicorn[standard]
