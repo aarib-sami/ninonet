@@ -1,0 +1,19 @@
+# Dependencies / build
+node_modules/
+web/dist/
+web/.env.local
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Large / local secrets
+*.pt
+*.onnx
+*.nc
+*.parquet
+
+# Local copies from Drive (ok to keep locally; don't force-commit huge caches)
+# Small JSON/CSV are fine to commit if you want — leave unignored:
+# data/oni_monthly.csv
+# artifacts/forecast.json
