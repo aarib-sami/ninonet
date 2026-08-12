@@ -25,4 +25,6 @@ export type Impacts = {
   confidence_tag: string
   n_winters?: number
   source?: string
+  oni_override?: boolean
+  forecast_source?: string
 }

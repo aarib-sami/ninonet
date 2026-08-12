@@ -93,18 +93,24 @@ def forecast(live: bool = Query(True, description="Run the CNN (true) or read fo
 def impacts(
     lat: float = Query(..., ge=-90, le=90),
     lon: float = Query(..., ge=-180, le=180),
+    oni: float | None = Query(
+        None,
+        description="Optional override of forecast ONI (e.g. 1.2) for artificial tests",
+    ),
 ):
     try:
         fc = _live_or_cached_forecast()
-        oni = _oni()
+        forecast_oni = float(oni) if oni is not None else float(fc["forecast_oni"])
         out = predict_impacts_for_point(
             lat=lat,
             lon=lon,
-            forecast_oni=float(fc["forecast_oni"]),
-            oni_by_winter=oni,
+            forecast_oni=forecast_oni,
+            oni_by_winter=_oni(),
             winter_label=str(fc.get("winter", "2026-27")),
         )
         out["forecast_source"] = fc.get("source")
+        out["oni_override"] = oni is not None
+        out["forecast_oni"] = forecast_oni
         return out
     except FileNotFoundError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e

@@ -21,10 +21,13 @@ export function fetchForecast() {
   return getJson<Forecast>('/forecast')
 }
 
-export function fetchImpacts(lat: number, lon: number) {
+export function fetchImpacts(lat: number, lon: number, oni?: number) {
   const q = new URLSearchParams({
     lat: lat.toFixed(4),
     lon: lon.toFixed(4),
   })
+  if (oni != null && Number.isFinite(oni)) {
+    q.set('oni', String(oni))
+  }
   return getJson<Impacts>(`/impacts?${q}`)
 }

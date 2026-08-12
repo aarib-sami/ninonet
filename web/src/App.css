@@ -69,6 +69,41 @@
   width: 100%;
 }
 
+.oni-test {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.oni-test input {
+  width: 4.2rem;
+  padding: 0.25rem 0.35rem;
+  border: 1px solid var(--line);
+  background: white;
+  font: inherit;
+}
+
+.oni-test button {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--line);
+  background: var(--ocean);
+  color: white;
+  cursor: pointer;
+}
+
+.oni-test button.linkish {
+  background: transparent;
+  color: var(--ocean);
+  border: none;
+  text-decoration: underline;
+  padding-inline: 0.25rem;
+}
+
 .stage {
   display: grid;
   grid-template-columns: 1.6fr 0.9fr;

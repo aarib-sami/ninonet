@@ -38,6 +38,9 @@ export default function App() {
   const [impacts, setImpacts] = useState<Impacts | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** null = use model forecast; set e.g. 1.2 to artificial-test impacts */
+  const [oniOverride, setOniOverride] = useState<number | null>(null)
+  const [oniDraft, setOniDraft] = useState('1.2')
 
   useEffect(() => {
     fetchForecast()
@@ -51,7 +54,7 @@ export default function App() {
     setLoading(true)
     setError(null)
     setImpacts(null)
-    fetchImpacts(point.lat, point.lon)
+    fetchImpacts(point.lat, point.lon, oniOverride ?? undefined)
       .then((data) => {
         if (!cancelled) setImpacts(data)
       })
@@ -64,9 +67,9 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [point])
+  }, [point, oniOverride])
 
-  const oni = forecast?.forecast_oni
+  const oni = oniOverride ?? forecast?.forecast_oni
 
   return (
     <div className="shell">
@@ -89,8 +92,30 @@ export default function App() {
               {forecast.source && (
                 <span className="oni-source">
                   {forecast.source === 'pytorch_live' ? 'live CNN' : forecast.source}
+                  {oniOverride != null ? ' · test override' : ''}
                 </span>
               )}
+              <label className="oni-test">
+                Test ONI
+                <input
+                  type="number"
+                  step="0.1"
+                  value={oniDraft}
+                  onChange={(e) => setOniDraft(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const v = Number(oniDraft)
+                    if (Number.isFinite(v)) setOniOverride(v)
+                  }}
+                >
+                  Apply
+                </button>
+                <button type="button" className="linkish" onClick={() => setOniOverride(null)}>
+                  Reset
+                </button>
+              </label>
             </>
           )}
         </div>
